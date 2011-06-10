@@ -129,6 +129,12 @@ class MPIAgent(AgentModule):
          if self.sharedHome=="":
            print "5"
            self.sharedHome=commands.getoutput('echo $HOME')
+         cmd = ('ls -la %s')%(self.sharedHome)
+         status, self.sharedHome = commands.getstatusoutput(cmd)
+         if status == 0:
+            self.log.info("MPI_SHARED_HOME directory exist")
+         else:
+            self.log.error('MPI_SHARED_HOME directory does not exist') 
          print "SHARED HOME------------->>>>>>>>>>>>", self.sharedHome 
          self.directory = classAdAgent.get_expression('WorkingDirectory')
          print "WORKING DIRECTORY ------------>>>>>>>>>>>>", self.directory
@@ -243,7 +249,8 @@ class MPIAgent(AgentModule):
          result = self.wait()
          print "-------------------- WAIT RESULT ----------------------"
          print result
-         print "-------------------------------------------------------" 
+         print "-------------------------------------------------------"
+         rest = os.system('sleep 9') 
          if not result['OK']:
            self.log.error('Failed to get the status')
            # FALTA VER QUE PASA            
