@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-# $HeadURL: http://svnweb.cern.ch/guest/dirac/DIRAC/trunk/DIRAC/WorkloadManagementSystem/PilotAgent/dirac-pilot.py $
+# $HeadURL$
 """
  Perform initial sanity checks on WN, installs and configures DIRAC and runs
  Job Agent to execute pending workload on WMS.
  It requires dirac-install script to be sitting in the same directory.
 """
-__RCSID__ = "$Id: dirac-pilot.py 22425 2010-03-07 16:39:43Z rgracian $"
+__RCSID__ = "$Id$"
 
 import os
 import sys
@@ -53,15 +53,20 @@ class CliParams:
     self.testVOMSOK = False
     self.site = ""
     self.ceName = ""
+    self.queueName = ""
     self.platform = ""
     self.minDiskSpace = 2560 #MB
     self.jobCPUReq = 900
-    self.pythonVersion = '25'
+    self.pythonVersion = '26'
     self.userGroup = ""
     self.userDN = ""
     self.maxCycles = CliParams.MAX_CYCLES
     self.flavour = 'DIRAC'
-    self.gridVersion = '2009-08-13'
+    self.gridVersion = '2010-11-20'
+    self.pilotReference = ''
+    self.releaseVersion = ''
+
+cliParams = CliParams()
 
 ###
 # Helper functions
@@ -69,33 +74,39 @@ class CliParams:
 
 def logDEBUG( msg ):
   if cliParams.debug:
-    for line in msg.split( "\n" ):
-      print "%s UTC dirac-pilot [DEBUG] %s" % ( time.strftime( '%Y-%m-%d %H:%M:%S', time.gmtime() ), line )
+    for _line in msg.split( "\n" ):
+      print "%s UTC dirac-pilot [DEBUG] %s" % ( time.strftime( '%Y-%m-%d %H:%M:%S', time.gmtime() ), _line )
     sys.stdout.flush()
 
 def logERROR( msg ):
-  for line in msg.split( "\n" ):
-    print "%s UTC dirac-pilot [ERROR] %s" % ( time.strftime( '%Y-%m-%d %H:%M:%S', time.gmtime() ), line )
+  for _line in msg.split( "\n" ):
+    print "%s UTC dirac-pilot [ERROR] %s" % ( time.strftime( '%Y-%m-%d %H:%M:%S', time.gmtime() ), _line )
   sys.stdout.flush()
 
 def logINFO( msg ):
-  for line in msg.split( "\n" ):
-    print "%s UTC dirac-pilot [INFO]  %s" % ( time.strftime( '%Y-%m-%d %H:%M:%S', time.gmtime() ), line )
+  for _line in msg.split( "\n" ):
+    print "%s UTC dirac-pilot [INFO]  %s" % ( time.strftime( '%Y-%m-%d %H:%M:%S', time.gmtime() ), _line )
   sys.stdout.flush()
 
 def executeAndGetOutput( cmd ):
   try:
     import subprocess
-    p = subprocess.Popen( "%s" % cmd, shell = True, stdout = subprocess.PIPE,
+    _p = subprocess.Popen( "%s" % cmd, shell = True, stdout = subprocess.PIPE,
                           stderr = subprocess.PIPE, close_fds = True )
-    outData = p.stdout.read().strip()
-    returnCode = p.wait()
+    outData = _p.stdout.read().strip()
+    returnCode = _p.wait()
   except ImportError:
     import popen2
-    p3 = popen2.Popen3( "%s" % cmd )
-    outData = p3.fromchild.read().strip()
-    returnCode = p3.wait()
+    _p3 = popen2.Popen3( "%s" % cmd )
+    outData = _p3.fromchild.read().strip()
+    returnCode = _p3.wait()
   return ( returnCode, outData )
+
+# Version print
+
+logINFO( "Running %s" % " ".join( sys.argv ) )
+logINFO( "Version %s" % __RCSID__ )
+
 
 # Version print
 
@@ -118,8 +129,8 @@ rootPath = os.getcwd()
 
 installScriptName = 'dirac-install.py'
 
-for dir in ( pilotRootPath, rootPath ):
-  installScript = os.path.join( dir, installScriptName )
+for path in ( pilotRootPath, rootPath ):
+  installScript = os.path.join( path, installScriptName )
   if os.path.isfile( installScript ):
     break
 
@@ -147,11 +158,10 @@ os.chmod( installScript, stat.S_IRWXU )
 # Option parsing
 ###
 
-"""
- Flags not migrated from old dirac-pilot
-   -r --repository=<rep>       Use <rep> as cvs repository              <--Not done
-   -C --cvs                    Retrieve from CVS (implies -b) <--Not done
-"""
+# Flags not migrated from old dirac-pilot
+#   -r --repository=<rep>       Use <rep> as cvs repository              <--Not done
+#   -C --cvs                    Retrieve from CVS (implies -b) <--Not done
+
 
 cmdOpts = ( ( 'b', 'build', 'Force local compilation' ),
             ( 'd', 'debug', 'Set debug flag' ),
@@ -182,7 +192,6 @@ cmdOpts = ( ( 'b', 'build', 'Force local compilation' ),
             ( 'c', 'cert', 'Use server certificate instead of proxy' ),
           )
 
-cliParams = CliParams()
 
 installOpts = []
 configureOpts = []
@@ -207,6 +216,8 @@ for o, v in optList:
     cliParams.gridVersion = v
   elif o == '-i' or o == '--python':
     cliParams.pythonVersion = v
+  elif o in ( '-l', '--project' ):
+    installOpts.append( "-l '%s'" % v )
   elif o == '-n' or o == '--name':
     configureOpts.append( '-n "%s"' % v )
     cliParams.site = v
@@ -215,11 +226,11 @@ for o, v in optList:
     cliParams.platform = v
   elif o == '-r' or o == '--release':
     installOpts.append( '-r "%s"' % v )
+    cliParams.releaseVersion = v
   elif o == '-t' or o == '--test':
     cliParams.dryRun = True
   elif o == '-u' or o == '--url':
-    #TODO
-    pass
+    installOpts.append( '-u "%s"' % v )
   elif o == '-N' or o == '--Name':
     configureOpts.append( '-N "%s"' % v )
     cliParams.ceName = v
@@ -233,6 +244,8 @@ for o, v in optList:
       cliParams.maxCycles = min( CliParams.MAX_CYCLES, int( v ) )
     except:
       pass
+  elif o == '-R' or o == '--reference':
+    cliParams.pilotReference = v
   elif o in ( '-S', '--setup' ):
     configureOpts.append( '-S "%s"' % v )
   elif o in ( '-C', '--configurationServer' ):
@@ -251,6 +264,8 @@ for o, v in optList:
     pass
   elif o in ( '-V', '--VO' ):
     configureOpts.append( '-V "%s"' % v )
+    #HACK while VO == project in dirac-install
+    installOpts.append( '-V "%s"' % v )
   elif o in ( '-W', '--gateway' ):
     configureOpts.append( '-W "%s"' % v )
   elif o == '-E' or o == '--server':
@@ -272,28 +287,66 @@ if cliParams.pythonVersion:
 ##
 
 pilotRef = 'Unknown'
+
+# Pilot reference is specified at submission
+if cliParams.pilotReference:
+  cliParams.flavour = 'DIRAC'
+  pilotRef = cliParams.pilotReference
+
+# Take the reference from the Torque batch system
+if os.environ.has_key( 'PBS_JOBID' ):
+  cliParams.flavour = 'DIRAC'
+  pilotRef = os.environ['PBS_JOBID']
+  cliParams.queueName = os.environ['PBS_QUEUE']
+
+# This is the CREAM direct submission case
+if os.environ.has_key( 'CREAM_JOBID' ):
+  cliParams.flavour = 'CREAM'
+  pilotRef = os.environ['CREAM_JOBID']
+
+# If we still have the GLITE_WMS_JOBID, it means that the submission
+# was through the WMS, take this reference then
 if os.environ.has_key( 'EDG_WL_JOBID' ):
   cliParams.flavour = 'LCG'
   pilotRef = os.environ['EDG_WL_JOBID']
 
 if os.environ.has_key( 'GLITE_WMS_JOBID' ):
-  cliParams.flavour = 'gLite'
-  pilotRef = os.environ['GLITE_WMS_JOBID']
+  if os.environ['GLITE_WMS_JOBID'] != 'N/A':
+    cliParams.flavour = 'gLite'
+    pilotRef = os.environ['GLITE_WMS_JOBID']
 
 configureOpts.append( '-o /LocalSite/GridMiddleware=%s' % cliParams.flavour )
+if pilotRef != 'Unknown':
+  configureOpts.append( '-o /LocalSite/PilotReference=%s' % pilotRef )
 
 ###
 # Try to get the CE name
 ###
-cliParams.ceName = 'Local'
-if pilotRef != 'Unknown':
-  retCode, CE = executeAndGetOutput( 'edg-brokerinfo getCE || glite-brokerinfo getCE' )
+#cliParams.ceName = 'Local'
+if cliParams.flavour == 'LCG' or cliParams.flavour == 'gLite' :
+  if os.environ.has_key( 'OSG_APP' ):
+    retCode, CE = executeAndGetOutput( 'echo $OSG_HOSTNAME' )
+  else:
+    retCode, CE = executeAndGetOutput( 'edg-brokerinfo getCE || glite-brokerinfo getCE' )
   if not retCode:
     cliParams.ceName = CE.split( ':' )[0]
-    configureOpts.append( '-o /LocalSite/PilotReference=%s' % pilotRef )
+    cliParams.queueName = CE.split( '/' )[1]
     configureOpts.append( '-N "%s"' % cliParams.ceName )
   else:
     logERROR( "There was an error executing brokerinfo. Setting ceName to local " )
+elif cliParams.flavour == "CREAM":
+  if os.environ.has_key( 'CE_ID' ):
+    cliParams.ceName = os.environ['CE_ID'].split( ':' )[0]
+    cliParams.queueName = os.environ['CE_ID'].split( '/' )[1]
+    configureOpts.append( '-N "%s"' % cliParams.ceName )
+    configureOpts.append( '-o /LocalSite/CEQueue="%s"' % cliParams.queueName )
+
+if cliParams.queueName:
+  configureOpts.append( '-o /LocalSite/CEQueue=%s' % cliParams.queueName )
+if cliParams.ceName:
+  configureOpts.append( '-o /LocalSite/GridCE=%s' % cliParams.ceName )
+if cliParams.releaseVersion:
+  configureOpts.append( '-o /LocalSite/ReleaseVersion=%s' % cliParams.releaseVersion )
 
 ###
 # Set the platform if defined
@@ -335,8 +388,9 @@ sys.path.insert( 0, diracScriptsPath )
 # Configure DIRAC
 ###
 
+# Instead of dumping the Full configuration, include all Server in dirac.cfg
+configureOpts.append( '-I' )
 configureCmd = "%s %s" % ( os.path.join( diracScriptsPath, "dirac-configure" ), " ".join( configureOpts ) )
-print "VH >>>>>", configureCmd
 
 logDEBUG( "Configuring DIRAC with: %s" % configureCmd )
 
@@ -348,10 +402,11 @@ if os.system( configureCmd ):
 # Dump the CS to cache in file
 ###
 
-cfgFile = os.path.join( rootPath, "etc", "dirac.cfg" )
-cacheScript = os.path.join( diracScriptsPath, "dirac-configuration-dump-local-cache" )
-if os.system( "%s -f %s" % ( cacheScript, cfgFile ) ):
-  logERROR( "Could not dump the CS to %s" % cfgFile )
+# cfgFile = os.path.join( rootPath, "etc", "dirac.cfg" )
+# cacheScript = os.path.join( diracScriptsPath, "dirac-configuration-dump-local-cache" )
+# if os.system( "%s -f %s" % ( cacheScript, cfgFile ) ):
+#   logERROR( "Could not dump the CS to %s" % cfgFile )
+configureScript = os.path.join( diracScriptsPath, "dirac-configure" )
 
 ###
 # Set the LD_LIBRARY_PATH and PATH
@@ -472,6 +527,11 @@ architectureScript = ""
 candidate = os.path.join( rootPath, "scripts", architectureScriptName )
 if os.path.isfile( candidate ):
   architectureScript = candidate
+else:
+  # If the extension does not provide a dirac-architecture, use dirac-platform as default value
+  candidate = os.path.join( rootPath, "scripts", "dirac-platform" )
+  if os.path.isfile( candidate ):
+    architectureScript = candidate
 
 if architectureScript:
   retCode, localArchitecture = executeAndGetOutput( architectureScript )
@@ -479,9 +539,12 @@ if architectureScript:
     localArchitecture = localArchitecture.strip()
     os.environ['CMTCONFIG'] = localArchitecture
     logINFO( 'Setting CMTCONFIG=%s' % localArchitecture )
-    os.system( "%s -f %s -o '/LocalSite/Architecture=%s'" % ( cacheScript, cfgFile, localArchitecture ) )
+    # os.system( "%s -f %s -o '/LocalSite/Architecture=%s'" % ( cacheScript, cfgFile, localArchitecture ) )
+    # dirac-configure will not change existing cfg unless -U option is used.
+    os.system( "%s -F -o '/LocalSite/Architecture=%s'" % ( configureScript, localArchitecture ) )
   else:
     logERROR( "There was an error calling %s" % architectureScript )
+
 #
 # Get host and local user info
 #
@@ -570,7 +633,7 @@ if diskSpace < cliParams.minDiskSpace:
 # Get job CPU requirement and queue normalization
 #
 
-if pilotRef != 'Unknown':
+if cliParams.flavour == 'LCG' or cliParams.flavour == 'gLite' :
   logINFO( 'CE = %s' % CE )
   logINFO( 'LCG_SITE_CE = %s' % cliParams.ceName )
 
@@ -581,10 +644,13 @@ if pilotRef != 'Unknown':
       queueNorm = float( queueNormList[1] )
       logINFO( 'Queue Normalization = %s SI00' % queueNorm )
       if queueNorm:
-        # Update the local normalization factor: We are using seconds @ 250 SI00 = 1 HS09
+        # Update the local normalization factor: We are using seconds @ 250 SI00 = 1 HS06
         # This is the ratio SpecInt published by the site over 250 (the reference used for Matching)
-        os.system( "%s -f %s -o /LocalSite/CPUScalingFactor=%s" % ( cacheScript, cfgFile, queueNorm / 250. ) )
-        os.system( "%s -f %s -o /LocalSite/CPUNormalizationFactor=%s" % ( cacheScript, cfgFile, queueNorm / 250. ) )
+        # os.system( "%s -f %s -o /LocalSite/CPUScalingFactor=%s" % ( cacheScript, cfgFile, queueNorm / 250. ) )
+        # os.system( "%s -f %s -o /LocalSite/CPUNormalizationFactor=%s" % ( cacheScript, cfgFile, queueNorm / 250. ) )
+        os.system( "%s -F -o /LocalSite/CPUScalingFactor=%s -o /LocalSite/CPUNormalizationFactor=%s" % ( configureScript,
+                                                                                                      queueNorm / 250.,
+                                                                                                      queueNorm / 250. ) )
     else:
       logERROR( 'Fail to get Normalization of the Queue' )
   else:
@@ -604,11 +670,10 @@ if pilotRef != 'Unknown':
 #
 # further local configuration
 #
-
 inProcessOpts = ['-s /Resources/Computing/CEDefaults' ]
 inProcessOpts .append( '-o WorkingDirectory=%s' % rootPath )
 inProcessOpts .append( '-o GridCE=%s' % cliParams.ceName )
-if pilotRef != 'Unknown':
+if cliParams.flavour == 'LCG' or cliParams.flavour == 'gLite' :
   inProcessOpts .append( '-o GridCEQueue=%s' % CE )
 inProcessOpts .append( '-o LocalAccountString=%s' % localUser )
 inProcessOpts .append( '-o TotalCPUs=%s' % 1 )
@@ -621,7 +686,6 @@ inProcessOpts .append( '-o MaxTotalJobs=%s' % 10 )
 
 jobAgentOpts = [ '-o MaxCycles=%s' % cliParams.maxCycles ]
 # jobAgentOpts.append( '-o CEUniqueID=%s' % JOB_AGENT_CE )
-# jobAgentOpts.append( '-o ControlDirectory=%s' % jobAgentControl )
 if cliParams.debug:
   jobAgentOpts.append( '-o LogLevel=DEBUG' )
 
@@ -639,8 +703,7 @@ for i in os.listdir( rootPath ):
   cfg = os.path.join( rootPath, i )
   if os.path.isfile( cfg ) and re.search( '.cfg&', cfg ):
     extraCFG.append( cfg )
-logINFO( 'Starting MPIAgent' )
-os.environ['PYTHONUNBUFFERED'] = 'yes'
+
 #
 # Start MPIJobAgent
 #
@@ -678,7 +741,7 @@ logINFO( 'Starting JobAgent' )
 os.environ['PYTHONUNBUFFERED'] = 'yes'
 
 diracAgentScript = os.path.join( rootPath, "scripts", "dirac-agent" )
-jobAgent = '%s WorkloadManagement/JobAgent -o /AgentJobRequirement/JobType=User %s %s %s' % ( diracAgentScript,
+jobAgent = '%s WorkloadManagement/JobAgent -o /AgentJobRequirements/JobType=User %s %s %s' % ( diracAgentScript,
                                                          " ".join( jobAgentOpts ),
                                                          " ".join( inProcessOpts ),
                                                          " ".join( extraCFG ) )

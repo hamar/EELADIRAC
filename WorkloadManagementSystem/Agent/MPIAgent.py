@@ -36,7 +36,7 @@ class MPIAgent(AgentModule):
   def initialize(self, loops=0):
     """ Sets default parameters, creates CE instance and initialize MPI variables to "False".
     """
-    print "1"
+    print 1
     #Disable monitoring
     self.am_setOption( 'MonitoringEnabled', False )
     #self.log.setLevel('debug') #temporary for debugging
