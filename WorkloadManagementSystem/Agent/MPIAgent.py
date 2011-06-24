@@ -36,7 +36,7 @@ class MPIAgent(AgentModule):
   def initialize(self, loops=0):
     """ Sets default parameters, creates CE instance and initialize MPI variables to "False".
     """
-    print "1"
+    #print "1"
     #Disable monitoring
     self.am_setOption( 'MonitoringEnabled', False )
     #self.log.setLevel('debug') #temporary for debugging
@@ -62,7 +62,7 @@ class MPIAgent(AgentModule):
     self.siteName = gConfig.getValue( '/LocalSite/Site', 'Unknown' )
     self.pilotReference = gConfig.getValue( '/LocalSite/PilotReference', 'Unknown' )
     self.defaultProxyLength = gConfig.getValue( '/Security/DefaultProxyLifeTime', 86400 * 5 )
-    print "2"
+    #print "2"
     #Agent options
     # This is the factor to convert raw CPU to Normalized units (based on the CPU Model)
     self.cpuFactor = gConfig.getValue( '/LocalSite/CPUNormalizationFactor', 0.0 )
@@ -112,10 +112,10 @@ class MPIAgent(AgentModule):
     """
     while self.status <> 'Exit':
      if  self.masterFlag == False and self.slaveFlag == False:
-       print "3" 
+       #print "3" 
        result = self.computingElement.getJDL()
        if result['OK']:
-         print "4" 
+         #print "4" 
          self.resourceJDL = result['Value']
          classAdAgent = ClassAd(self.resourceJDL)
          self.site = classAdAgent.get_expression('Site')
@@ -123,33 +123,47 @@ class MPIAgent(AgentModule):
          self.platform = classAdAgent.get_expression('LHCbPlatform')
           
          cmd = ('lcg-infosites --vo prod.vo.eu-eela.eu ce |grep %s |cut -d" " -f2') % (self.gridCE)
-         self.numProcSite = commands.getoutput(cmd)
-         self.hostname = commands.getoutput('/bin/hostname -f')
-         self.sharedHome = commands.getoutput ('echo $MPI_SHARED_HOME')
+         status, res = commands.getstatusoutput(cmd)
+         if status==0:
+           self.numProcSite = res
+         else:
+           self.log.debug("Failed to get number of processor available in this site")
+         
+         status, res = commands.getstatusoutput('/bin/hostname -f')
+         if status==0:
+           self.hostname = res
+         else:
+           self.log.debug("Failed to get hostname")
+         
+         
+         status, res = commands.getoutput ('echo $MPI_SHARED_HOME')
+         if status==0:
+           self.sharedHome = res 
+         else:
+           self.log.debug("Failed to get MPI_SHARED_HOME value")
+         
+         
          if self.sharedHome=="":
-           print "5"
            self.sharedHome=commands.getoutput('echo $HOME')
+           self.log.info("MPI_SHARED_HOME pointed to $HOME")
+           
          cmd = ('ls -la %s')%(self.sharedHome)
          status, self.sharedHome = commands.getstatusoutput(cmd)
          if status == 0:
             self.log.info("MPI_SHARED_HOME directory exist")
          else:
             self.log.error('MPI_SHARED_HOME directory does not exist') 
-         print "SHARED HOME------------->>>>>>>>>>>>", self.sharedHome 
+          
          self.directory = classAdAgent.get_expression('WorkingDirectory')
-         print "WORKING DIRECTORY ------------>>>>>>>>>>>>", self.directory
-         print "5.1" 
+
          matchDict = {'Site': self.site, 'CE': self.gridCE, 'Platform': self.platform}
          statusDict = {'Hostname':self.hostname, 'Master': self.masterFlag, 'Slave': self.slaveFlag, 'ResourceJDL': self.resourceJDL, 'PilotReference':self.pilotReference}
-         print "5.2" 
+          
          self.mpiService = RPCClient('WorkloadManagement/MPIService')
-         print "5.3"
+         
          result = self.mpiService.matchRing(matchDict, statusDict)
-         print "====================================================="
-         print "====================================================="
-         print result
-         print "====================================================="
-         print "====================================================="
+         self.log.debug("Match ring result")
+         self.log.debug(result)
 
          if result['OK']:
              self.ringID = result['Value']['RingID']
@@ -160,122 +174,110 @@ class MPIAgent(AgentModule):
              self.slaveFlag = result['Value']['SlaveFlag']
              self.jobMatch = result['Value']['JobMatch']
              self.mpiFlavor = result['Value']['MPIFlavor']
+             
              if self.mpiFlavor == "MPICH2":
-               print "7"
                res = self.MPICH2environment()
                if not res['OK']:
-                 print "MPICH1 environment failed to be initialized"
+                 self.log.info("MPICH2 environment failed to be initialized")
+                 res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
+                 if not res['OK']:
+                   self.log.info("Problems to reschedule and finalize the Job")
+                 return S_ERROR("MPICH2 environment failed to be initialized")
+             
              elif self.mpiFlavor == 'MPICH1':
-               print "8" 
                res = self.MPICH1environment()
                if not res['OK']:
-                 print "MPICH1 environment failed to be initialized"
+                 self.log.info("MPICH1 environment failed to be initialized")
+                 res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
+                 if not res['OK']:
+                   self.log.info("Problems to reschedule and finalize the Job")
+                 return S_ERROR("MPICH1 environment failed to be initialized")
+             
              else:
-               print "9"
                Message = 'Problems to start MPICH environment'
                res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
                if not res['OK']:
-                 print "Problems to reschedule and finalize" 
-               print res
+                 self.log.info("Problems to reschedule and finalize the Job")
                return S_ERROR('Message')
 
              self.jobPath = (self.sharedHome+os.sep+str(self.jobID))
-             print "SELF JOB PATH", self.jobPath 
+ 
              self.log.info("----------------------------------------------------------------------------")
              self.log.info(('Match Ring Results: Ring ID: %s JobID: %s  Status: %s MASTER FLAG: %s  MPI Flavor: %s') % (self.ringID, self.jobID, self.status, self.masterFlag, self.mpiFlavor))
              self.log.info("----------------------------------------------------------------------------")
 
          else:
-             print result
-             print "10"
-             ####self.log.warn(result['Value']['Message'])
-             ####self.log.warn(result['Message'])
-             self.log.warn('Failed to match ring')
-             #########self.__finish('Not match found')
+             Message = "Failed to match ring"
+             self.log.debug(Message)
              self.finalize()
              return S_ERROR('Message')
 
-         ####else:
-           ####print "11"
-           ####self.log.warn(result['Message'])
-           #####self.log.warn('Failed to get the Resource JDL')
-           ####return S_ERROR(result)
-
+ 
      elif self.status == 'Accumulating':
-       print "12"
        self.log.info ("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info ("-----------------------------------------")
        os.environ['TMP_DIR'] = (str(self.jobID))
        cmd = ('echo $TMP_DIR')
-       x = commands.getoutput(cmd)        
-       print x 
+       x = commands.getstatusoutput(cmd)        
+ 
       
-
        if self.masterFlag == True:
-         print "13"
          testDict = {'RingID': self.ringID, 'JobID':self.jobID, 'Status':self.status, 'MasterFlag':self.masterFlag}
          result = self.mpiService.testRing(testDict)
          if not result['OK']:
-           ########self.status = 'Failed'
-           print "14" 
-           self.log.warn('Failed to get the number of Processors')
-           ########self.log.warn(result['Message'])
            Message = 'Failed to get the number of processors'
+           self.log.error(Message)
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
-             print "Problems to reschedule and finalize"
-             print res
+             self.log.error("Problems to reschedule and finalize")
            return S_ERROR('Failed to get the number of Processors')
+           
          elif result['Value'].has_key('OK'):
-           #######self.status = 'Failed'
-           print "15"
+           
            Message = 'More than 10 minutes accumulating pilots'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process') 
            return S_ERROR('More than 10 minutes accumulating pilots')
+         
          self.numProcJob = result['Value']['NumberOfProcessorsJob']
          self.numProcRing = result['Value']['NumberOfProcessorsRing']
          self.status = result['Value']['Status']
+         
          #### Review
          #if self.numProcJob > self.numProcSite:
-         # print ("SELF JOB ID", self.jobID)
-         # print " numeros proc Job mayores al del site aqui 1u"
+         # #print ("SELF JOB ID", self.jobID)
+         # #print " numeros proc Job mayores al del site aqui 1u"
          # return self.__rescheduleFailedJob( self.jobID , 'Number of nodes in the site are less than those required by the job' )
 
-       else:
-         print "16" 
+       else:         
          result = self.wait()
-         print "-------------------- WAIT RESULT ----------------------"
-         print result
-         print "-------------------------------------------------------"
-         rest = os.system('sleep 9') 
          if not result['OK']:
-           self.log.error('Failed to get the status')
-           # FALTA VER QUE PASA            
+           self.log.error("Failed to get the result of wait")
+         else:
+           self.log.debug("Result of self wait ok")
+           
          self.status = result['Value']
 
      elif self.status == 'Ready':
-       print "17"
        self.log.info("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info("-----------------------------------------")
        if self.masterFlag == True:
          result = self.masterStart()
-         print "------------------------"
-         print "result master start", result
-         print "------------------------"
+         self.log.debug("Master start result:")
+         self.log.debug(result)
          if not result['OK']:
-           print "18" 
-           self.log.warn('Problems to start the master daemon')
-           self.log.warn(result['Message'])
            Message = 'Problems to start master daemon'
+           self.log.error(result['Message'])
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
-             self.log.error('Failed to reschedule the job and finalize the process')
-
+             self.log.error('Failed to reschedule the job and finalize the process')  
            return S_ERROR(result['Message'])
+         else:
+           self.log.debug("Master start correctly")
+           
          self.port = result['Value']['Port']
          self.master = result['Value']['Master']
          self.log.info("-----------------------------------------")
@@ -285,193 +287,190 @@ class MPIAgent(AgentModule):
          updDict = {'RingID': self.ringID, 'Port': self.port, 'JobID': self.jobID}
          result = self.mpiService.updateRing(updDict)
          if not result['OK']:
-           print "19" 
-           self.log.warn('Failed to update the ring port number')
-           self.log.warn(result['Message'])
+           self.log.error('Failed to update the ring port number')
+           self.log.error(result['Message'])
            Message = 'Failed to update the ring port number'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
-
            return S_ERROR(result['Message'])
+         else:
+           self.log.debug("Ring updated correctly")  
+         
          self.status = result['Value']['Status']
-         print "20"
+         
 
        if self.slaveFlag == True:
-         print "21" 
          result = self.wait()
          if not result['OK']:
            self.log.error('Failed to get the status')
-           # FALTA VER QUE PASA
+         else:
+           self.log.debug('Wait status retrieve')
+           
          self.status = result['Value']
 
-     elif self.status == 'RingInit':
-       print "22" 
+     elif self.status == 'RingInit': 
        self.log.info("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info("-----------------------------------------")
        if self.slaveFlag == True and self.slaveUP == False:
-         print "23" 
          attDict = {'JobID': self.jobID, 'RingID': self.ringID}
          result = self.mpiService.getRingAttributes(attDict)
-         if not result['OK']:
-           print "24"    
-           self.log.warn("Failed to get the master and the port to start mpd slave")
-           self.log.warn(result['Message'])
+         if not result['OK']:   
+           self.log.error("Failed to get the master and the port to start mpd slave")
+           self.log.error(result['Message'])
            Message = 'Failed to get the master and the port to start mpd slave'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
            return S_ERROR('Failed to get the master and the port to start the slave mpd')
+         else:
+           self.log.debug('Ring attributes retrieved')
+             
          self.master = result['Value']['Master']
          self.port = result['Value']['Port']
          slaveDict = {'Master': self.master, 'Port': self.port}
          result = self.slaveStart(slaveDict)
          if not result['OK']:
-           print "25"
-           self.log.warn("Failed to start slave daemon")
-           self.log.warn(result['Message'])
+           self.log.error("Failed to start slave daemon")
+           self.log.error(result['Message'])
            Message = 'Failed to start slave daemon'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
            return S_ERROR('Failed to start slave daemon')
+         else:
+           self.log.debug('Slave started correctly')  
          result = self.wait()
          if not result['OK']:
            self.log.error('Failed to get the status')
-           # FALTA VER QUE PASA
+         else:
+           self.log.debug("Status retrieved correctly")
          self.status = result['Value']
 
-         ##### CAMBIOS
-         print "=================== INPUT SANDBOX SLAVE ====================================" 
-         print "JOBMATCH", self.jobMatch
-         print "resourceJDL", self.resourceJDL
-         print "============================================================================"
+         ### Try to download the Input Sandbox in the Slaves
          result = self.__downloadInputSandbox( self.jobID)
-         print result
-         print "============================================================================"
-        
+  
          if not result['OK']:
            msg = 'Problems to download the input sandbox in the slave'
            self.log.error(msg)
            return S_ERROR(msg) 
-         print "============================================================================" 
-         print "26"
+         else:
+           self.log.debug('Input sandbox downloaded in the slave')
          return
+         
        elif self.masterFlag == True:
-         print "27"
          result = self.testStatusRing(self.directory)
-         #self.status = result['Value']['Status']
+         if not result['OK']:
+           self.log.error('Failed to test the ring status')
+         else:
+           self.log.debug('Test status ring: OK')
          self.status = 'Starting' 
        else:
-         print "28"    
          result = self.wait()
          if not result['OK']:
            self.log.error('Failed to get the status')
-           # FALTA VER QUE PASA
+         else:
+           self.log.debug('Wait status ok')  
          self.status = result['Value']
-         if self.status == 'Failed':
-           print "29"
-           ########return self.__rescheduleFailedJob(jobID, 'RingInit more than 50 sec')
-           #########updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
-           #########result = self.mpiService.setRingStatus(updDict)
+         if self.status == 'Failed'
            Message = 'RingInit more than 50 sec'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
-
+           return S_ERROR(result['Message'])
            return
        return
 
      elif self.status == 'Starting':
-       print "30" 
        self.log.info("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info("-----------------------------------------")
 
-       if self.masterFlag == True:
-         print "31" 
+       if self.masterFlag == True: 
 
          result = self.submitJobMPI(self.jobMatch, self.resourceJDL)
+  
          if result == 'Failed':
-           print "32"
            self.log.warn('Failed to Submit MPI Job')
            self.status = result
            Message = 'Failed to Submit MPI Job'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
-
+           else:
+             self.log.debug('Job rescheduled')
+         else:
+           self.log.debug('MPI Job submitted in the master')      
 
 
        elif self.slaveFlag == True:
-         print "33"
          result = self.wait()
          if not result['OK']:
            self.log.error('Failed to get the status')
-           # FALTA VER QUE PASA
-
+         else:
+           self.log.debug('Wait status retrieved')
          self.status = result['Value']
 
      elif self.status == 'Running':
-       print "34"
+
        self.log.info("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info("-----------------------------------------")
 
        if self.masterFlag == True:
-        print "35" 
         monDict = {'RingID': self.ringID, 'Status': self.status, 'JobID':self.jobID, 'PilotID': self.pilotID}
         result = self.mpiService.monitorRing(monDict)
         if result['OK']:
           self.status = result['Value']
-          print "Job Status OK" 
+          self.log.debug('Monitor ring OK')
         else:
           self.status = 'Failed' 
-          print "Failed to get job status"
+          self.log.error('Monitor ring failed, status failed')
 
        elif self.slaveFlag == True:
-        print "36" 
         result = self.wait()
         if not result['OK']:
           self.log.error('Failed to get the status')
-          # FALTA VER QUE PASA
-
+        else:
+          self.log.debug('Wait status OK')
         self.status = result['Value']
 
        else:
-        print "37"
+        self.log.debug('No se porque llegue aqui')
         return
 
      elif self.status == 'Done' or self.status == 'Failed':
-       print "38" 
        self.log.info("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info("-----------------------------------------")
 
        if self.masterFlag == True:
-         print "39" 
          result = self.shutdownRing()
+         if not result['OK']:
+           self.log.error('Failed to shutdown the ring in the master')
+         else:
+           self.log.debug('Ring is down in the master')
          self.status = 'OUT'
+         self.log.debug('Master: Status Done or Failed')
        else:
-         print "40"
          result = self.shutdownMPD()
+         if not result['OK']:
+           self.log.error('Failed to shutdown the ring in the master')
+         else:
+           self.log.debug('Ring is down in the master')
          self.status = 'OUT'
+         self.log.debug('Slave: Status Done or Failed')
 
-     elif self.status == 'OUT':
-       print "41" 
+     elif self.status == 'OUT': 
        self.log.info("-----------------------------------------")
        self.log.info(('Ring ID: %s JobID: %s  Status: %s ') % (self.ringID, self.jobID, self.status))
        self.log.info("-----------------------------------------")
        result = self.__getCPUTimeLeft()
        self.log.info('Result from TimeLeft utility:', result)
-       print result
-       print "TIME UTILITY RESULT"
-
        self.finalize()
 
      else:
-       print "42" 
        self.log.info("-----------------------------------------")
        self.log.info("Status is not defined properly into DB, changing status to EXIT")
        self.log.info("-----------------------------------------")
@@ -486,7 +485,6 @@ class MPIAgent(AgentModule):
   def submitJobMPI(self, jobMatch, resourceJDL):
     """  Submit MPI Job to the Grid, its the same than for normal jobs, just variations in order to update MPIJobDB.
     """
-    print "43"
     matcherInfo = jobMatch
     jobAtt = self.jobMatch['JobJDL']
     jobJDL = ClassAd(jobAtt)
@@ -621,7 +619,7 @@ class MPIAgent(AgentModule):
 
       self.log.verbose('Before %sCE submitJob()' %(self.ceName))
       submission = self.__submitJob(jobID, params, resourceParams, optimizerParams, jobJDL, proxyChain)
-      print "44"
+      #print "44"
       if not submission['OK']:
         self.status = 'Failed'
         result = self.setRingStatus()
@@ -632,14 +630,14 @@ class MPIAgent(AgentModule):
         return self.__finish(submission['Message'])
       #elif 'PayloadFailed' in submission:
         # Do not keep running and do not overwrite the Payload error
-      #  print "45"
+      #  #print "45"
       #  self.status = 'Failed'
       #  updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
       #  result = self.mpiService.setRingStatus(updDict)
       #  self.__finish('Payload execution failed with error code %s' % submission['PayloadFailed'])
       #  return self.status
       else:
-        print "46"
+        #print "46"
         self.status = 'Running'
         updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
         result = self.mpiService.setRingStatus(updDict)
@@ -656,7 +654,6 @@ class MPIAgent(AgentModule):
   def __finish(self, message):
     """Force the JobAgent to complete gracefully.
     """
-    print "47"
     self.log.info('MPIJobAgent will stop with message "%s", execution complete.' %message)
     fd = open(self.controlDir+'/stop_agent', 'w')
     fd.write('JobAgent Stopped at %s [UTC]' % (time.asctime(time.gmtime())))
@@ -664,8 +661,21 @@ class MPIAgent(AgentModule):
     self.status = 'Failed'
     updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
     result = self.mpiService.setRingStatus(updDict)
+    if not result['OK']:
+      self.log.error('Failed to set ring status')
+    else:
+      self.log.debug('Ring status set')
     result = self.shutdownRing()
+    if not result['OK']:
+      self.log.error('Failed to shutdown the ring')
+    else:
+      self.log.info('Ring down')
     cmd =('rm -rf %s') % (self.jobPath)
+    status, result = commands.getstatusoutput(cmd)
+    if status==0:
+      self.log.debug('Path job removed')
+    else:
+      self.log.error('Failed to remove job path')
     self.jobPath = False
     self.sharedHome = False
     return S_ERROR('Message')
@@ -674,23 +684,24 @@ class MPIAgent(AgentModule):
   def finalize(self):
     """Force the JobAgent to complete gracefully.
     """
-
-    print "48"
     gridCE = gConfig.getValue( 'LocalSite/GridCE', 'Unknown' )
-
     wmsAdmin = RPCClient( 'WorkloadManagement/WMSAdministrator' )
     result = wmsAdmin.setPilotStatus( str( self.pilotReference ), 'Done', gridCE, 'Report from JobAgent' )
     if not result['OK']:
-      self.log.warn( result['Message'] )
+      self.log.error( result['Message'] )
     cmd =('rm -rf %s') % (self.jobPath)
-    x = commands.getoutput(cmd)
+    status, result = commands.getstatusoutput(cmd)
+    if status==0:
+      self.log.debug('Path job removed')
+    else:
+      self.log.error('Failed to remove job path')
     self.status = False
     self.masterFlag = False
     self.slaveFlag = False
     self.jobPath = False
     self.sharedHome = False
     self.mpiFlavor = False
-
+    self.log.debug('Finalize function done')
     return S_OK()
   #############################################################################
 
@@ -698,28 +709,48 @@ class MPIAgent(AgentModule):
     """ If MPI Flavor is MPICH2 this function run mpdtrace command to get the ring status, and know how many processors are
     into the ring
     """
-    print "49" 
+
     if self.mpiFlavor == 'MPICH2':
-      result1 = int(commands.getoutput('mpdtrace -l|wc -l'))
-      result = int(result1)
+      cmd = ('mpdtrace -l|wc -l')
+      status, result2 = commands.getstatusoutput(cmd)
+      if status==0:
+        result1 = int(result2)
+        result = int(result1)
+        msg = ('Machines in mpdtrace: %s)%(result)
+        self.log.debug(msg)
+      else:
+        msg = ('mpdtrace command fails')
+        self.log.error(msg)
+        result = S_ERROR(msg)
       startFlagTime = time.time()
       maxFlagTime = 60
       while result < self.numProcJob:
         comparationTime = time.time() - startFlagTime
         if comparationTime > maxFlagTime:
           result = S_ERROR("Failed by time")
-      print "50"
-      result1 = int(commands.getoutput('mpdtrace -l|wc -l'))
+      cmd = (commands.getoutput('mpdtrace -l|wc -l')
+      status, result1 = int(commands.getstatusoutput(cmd))
       result = int(result1)
       startDict = {'JobID':self.jobID, 'RingID':self.ringID}
       result = self.mpiService.startRing(startDict)
+      if not result['OK']:
+        msg = ('Failed to start the ring')
+        self.log.error(msg)
+        result = S_ERROR(msg)
+      else:
+        self.log.debug("MPICH2 Ring started")  
       self.status = result['Value']
             
 
     elif self.mpiFlavor == 'MPICH1':
-      print "51" 
       startDict = {'JobID':self.jobID, 'RingID':self.ringID}
       result = self.mpiService.startRing(startDict)
+      if not result['OK']:
+        msg = ('Failed to start the ring')
+        self.log.error(msg)
+        result = S_ERROR(msg)
+      else:
+        self.log.debug("MPICH1 Ring started")
       self.status =  result['Value']
       result={'Status':self.status}
     return S_OK(result)
@@ -731,7 +762,6 @@ class MPIAgent(AgentModule):
        units. This value is subsequently used for scheduling further jobs in the
        same slot.
     """
-    print "52"
     utime, stime, cutime, cstime, elapsed = os.times()
     cpuTime = utime + stime + cutime
     self.log.info('Current raw CPU time consumed is %s' %cpuTime)
@@ -745,7 +775,6 @@ class MPIAgent(AgentModule):
     """Can call glexec utility here to set uid or simply log the changeover
        of a proxy.
     """
-    print "53"
     self.log.verbose('Log proxy change (to be instrumented)')
     return S_OK()
 
@@ -755,7 +784,6 @@ class MPIAgent(AgentModule):
     """Retrieves user proxy with correct role for job and sets up environment to
        run job locally.
     """
-    print "54"
     self.log.info("Requesting proxy for %s@%s" % (ownerDN, ownerGroup))
     token = gConfig.getValue("/Security/ProxyToken", "")
     if token:
@@ -790,7 +818,7 @@ class MPIAgent(AgentModule):
     """Checks software requirement of job and whether this is already present
        before installing software locally.
     """
-    print "55"
+
     if not jobParams.has_key('SoftwareDistModule'):
       msg = 'Job has no software installation requirement'
       self.log.verbose(msg)
@@ -815,7 +843,7 @@ class MPIAgent(AgentModule):
     """Submit job to the Computing Element instance after creating a custom
        Job Wrapper with the available job parameters.
     """
-    print "56"
+
     result = self.__createJobWrapper( jobID, jobParams, resourceParams, optimizerParams )
 
     if not result['OK']:
@@ -839,13 +867,7 @@ class MPIAgent(AgentModule):
     batchID = 'dc%s' % ( jobID )
     #submission = self.computingElement.submitJob( wrapperFile, jobJDL, payloadProxy, batchID )
     submission = self.computingElement.submitJob( wrapperFile, payloadProxy )
-    print "VANESSA" 
-    print "wrapperFile:", wrapperFile
-    print "jobJDL", jobJDL
-    print "payloadProxy", payloadProxy
-    print "batchID", batchID
-    print "------------------------------------"
-    print submission
+
 
     ret = S_OK( 'Job submitted' )
 
@@ -880,7 +902,7 @@ class MPIAgent(AgentModule):
     """This method creates a job wrapper filled with the CE and Job parameters
        to executed the job.
     """
-    print "57" 
+
     arguments = {'Job':jobParams,
                  'CE':resourceParams,
                  'Optimizer':optimizerParams}
@@ -973,7 +995,6 @@ class MPIAgent(AgentModule):
   def __saveJobJDLRequest(self, jobID, jobJDL):
     """Save job JDL local to JobAgent.
     """
-    print "58"
     classAdJob = ClassAd(jobJDL)
     classAdJob.insertAttributeString('LocalCE', self.ceName)
     jdlFileName = jobID+'.jdl'
@@ -988,10 +1009,13 @@ class MPIAgent(AgentModule):
   def __requestJob(self, resourceJDL):
     """Request a single job from the matcher service.
     """
-    print "59"
     try:
       matcher = RPCClient('WorkloadManagement/Matcher', timeout = 600)
       result = matcher.requestJob(resourceJDL)
+      if not result['OK']:
+        self.log.error('Failed to request a job in the matcher')
+      else:
+        self.log.info('Job matched')
       return result
     except Exception, x:
       self.log.exception(lException=x)
@@ -1004,7 +1028,7 @@ class MPIAgent(AgentModule):
 
     """Returns a dictionary of JDL parameters.
     """
-    print "60"
+    #print "60"
     try:
       parameters = {}
       if not re.search('\[', jdl):
@@ -1035,7 +1059,6 @@ class MPIAgent(AgentModule):
   def __report(self, jobID, status, minorStatus):
     """Wraps around setJobStatus of state update client
     """
-    print "61"
     jobReport = RPCClient('WorkloadManagement/JobStateUpdate')
     jobStatus = jobReport.setJobStatus(int(jobID), status, minorStatus, 'JobAgent')
     self.log.verbose('setJobStatus(%s,%s,%s,%s)' %(jobID, status, minorStatus, 'JobAgent'))
@@ -1049,7 +1072,6 @@ class MPIAgent(AgentModule):
     """Sends back useful information for the pilotAgentsDB via the WMSAdministrator
        service.
     """
-    print "62"
     gridCE = gConfig.getValue('LocalSite/GridCE', 'Unknown')
 
     wmsAdmin = RPCClient('WorkloadManagement/WMSAdministrator')
@@ -1072,7 +1094,6 @@ class MPIAgent(AgentModule):
   def __setJobSite(self, jobID, site):
     """Wraps around setJobSite of state update client
     """
-    print "63"
     jobReport = RPCClient('WorkloadManagement/JobStateUpdate')
     jobSite = jobReport.setJobSite(int(jobID), site)
     self.log.verbose('setJobSite(%s,%s)' %(jobID, site))
@@ -1086,7 +1107,6 @@ class MPIAgent(AgentModule):
   def __setJobParam(self, jobID, name, value):
     """Wraps around setJobParameter of state update client
     """
-    print "64"
     jobReport = RPCClient('WorkloadManagement/JobStateUpdate')
     jobParam = jobReport.setJobParameter(int(jobID), str(name), str(value))
     self.log.verbose('setJobParameter(%s,%s,%s)' %(jobID, name, value))
@@ -1100,8 +1120,7 @@ class MPIAgent(AgentModule):
   def __finish(self, message):
     """Force the JobAgent to complete gracefully.
     """
-    print "65"
-    self.log.info( 'JobAgent will stop with message "%s", execution complete.' % message )
+    self.log.info( 'MPIJobAgent will stop with message "%s", execution complete.' % message )
     self.am_stopExecution()
     return S_ERROR( message )
 
@@ -1110,8 +1129,7 @@ class MPIAgent(AgentModule):
   def __rescheduleFailedJob( self, jobID, ringID, status, message ):
     """ Reschedule a failed job.
     """ 
-    print "66"
-    self.log.warn( 'Failure during %s' % ( message ) )
+    self.log.error( 'Failure during %s' % ( message ) )
 
     jobManager = RPCClient( 'WorkloadManagement/JobManager' )
     jobReport = JobReport( int( jobID ), 'JobAgent' )
@@ -1138,7 +1156,6 @@ class MPIAgent(AgentModule):
   def wait(self):
     """ With this function the agent ask to the service for status of the ring, its a loop executed while status remain equal
     """
-    print "67"
     getDict = {'RingID': self.ringID, 'JobID': self.jobID}
     status = self.status
     startFlagTime = time.time()
@@ -1152,13 +1169,14 @@ class MPIAgent(AgentModule):
       #    result = self.status
       #    return S_ERROR(result)
       result = self.mpiService.getRingStatus(getDict)
-      self.status = result['Value']['Status']
+      #self.status = result['Value']['Status']
       if not result['OK']:
         self.log.warn('Failed to get the ring status')
         self.log.warn(result['Message'])
         self.status = 'Failed'
       else:
         self.status = result['Value']['Status']
+        self.log.info('Ring status OK')
     result = self.status
     return S_OK(result)
 
@@ -1167,31 +1185,28 @@ class MPIAgent(AgentModule):
   def masterStart(self):
     """ This function start the master daemon
     """
-    print "68"
     if self.mpiFlavor == 'MPICH2':
-      print "68.1"
       user = commands.getoutput('echo $USER')
       dir = os.path.exists(('/tmp/mpd2.console_%s')%(user))
       if dir == True:
-        #x = commands.getoutput('ls -la /tmp/mpd*')
-        #self.__rescheduleFailedJob(self.jobID , 'Other mpd daemon is running in the machine')
-        #self.status = 'Failed'
         updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
         result = self.mpiService.setRingStatus(updDict)
-        Message = 'Problems to start MPICH environment'
+        if not result['OK']:
+          self.log.warn('Failed to set the ring status')
+          self.log.warn(result['Message'])
+          self.status = 'Failed'
+        else:
+          self.status = result['Value']['Status']
+          self.log.info('Ring status OK')
+        Message = 'Problems to start MPICH2 environment'
         res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
         if not res['OK']:
-             self.log.error('Failed to reschedule the job and finalize the process')
-
-        print "RESULT STATUS Other MPD is running", result
+          self.log.error('Failed to reschedule the job and finalize the process')
         return self.__finish('Other MPD daemon is running in the same machine') 
-        #####return S_ERROR("Master Start Fail Other MPD daemon is running in the machine")
+
       result2 = (commands.getoutput('rehash'))
       result1 = (commands.getoutput('which mpd'))
-      #result3 = (commands.getoutput('which mpdtrace'))
       status, output = commands.getstatusoutput("which mpdtrace")
-      print status, output
-      print "MPDTRACE"
       if status == 0:
         self.log.info("MPDTRACE OK")
       else:
@@ -1200,39 +1215,44 @@ class MPIAgent(AgentModule):
         if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
 
-      print "++++++++++++++++++++++++++++++++++++++++++++"
       commands.getoutput('chmod 600 mpd.conf')
       cmd = (result1)
       start = os.spawnl(os.P_NOWAIT,cmd)
       rest = os.system('sleep 5')
       os.system('sleep 5')
-      self.port1 = commands.getoutput('mpdtrace -l |cut -d_ -f2 |cut -d" " -f1')
-      print self.port1
-      self.port = int(self.port1)
+      status, result = commands.getstatusoutput('mpdtrace -l |cut -d_ -f2 |cut -d" " -f1')
+      if status == 0:
+        self.log.debug('Port retrieved')
+      else:
+        self.log.error('Error getting the port ..')
+        self.status = 'Failed'
+        result = self.mpiService.setRingStatus(updDict)
+        return self.__finish('Error with mpdtrace')
+      self.port = int(result)
       if type(self.port) is int:
-         print "69"
          self.log.info("Port is an Integer")
       else:
-         print "70" 
          self.log.warn ("Port is not Integer")
          self.status = 'Failed'
-         result = self.mpiService.setRingStatus(updDict)
-         print "RESULT Port is not integer:", result 
+         result = self.mpiService.setRingStatus(updDict) 
          return self.__finish('Port is not an integer')
-         #####return S_ERROR()
+ 
       self.master = (commands.getoutput('/bin/hostname -f'))
       result = {'Master':self.master, 'Port':self.port}
       return S_OK(result)
 
     elif self.mpiFlavor == 'MPICH1':
-     print "71"
      testDict = {'JobID': self.jobID, 'RingID': self.ringID}
      getMachineFile = self.mpiService.getMachineFile(testDict)
+     if not getMachineFile['OK']:
+       self.log.error('Failed to get machine file')
+       self.status = 'Failed'
+       result = self.mpiService.setRingStatus(updDict) 
+       return self.__finish('Failed to get Machine File')
      machineFile = getMachineFile['Value']['Value']['Value']
      x = commands.getoutput('touch mf')
      x = commands.getoutput('cat mf')
      for item in machineFile:
-       print "72"
        v = type(item)
        line=0
        file = open('./mf', 'r').read().split('\n')
@@ -1248,9 +1268,7 @@ class MPIAgent(AgentModule):
   def slaveStart(self, slaveDict):
     """ This function start slave daemon using as paramenters master's hostname and port
     """
-    print "73" 
     if self.mpiFlavor=="MPICH2":
-      print "74"
       master = slaveDict['Master']
       port1 = slaveDict ['Port']
       port = int(port1)
@@ -1259,19 +1277,26 @@ class MPIAgent(AgentModule):
       cmd = ('%s -h %s -p %s -n &') % (dir, master, port)
       result = os.system(cmd)
       if result != 0:
-        print "75"
         self.__rescheduleFailedJob( self.jobID , 'Other mpd daemon is running in the machine' )
         self.status = 'Failed'
         updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
         result = self.mpiService.setRingStatus(updDict)
-        #####return S_ERROR("Master Start Fail")
         return self.__finish('Master Start Fail')
-      mpdStatus = (commands.getoutput('ps -ef|grep mpd'))
+      cmd = ('ps -ef|grep mpd')  
+      status, mpdStatus = commands.getstatusoutput(cmd)
+      if status == 0:
+        self.log.debug('mpd running, Slave started')
+      else:
+        self.__rescheduleFailedJob( self.jobID , 'Other mpd daemon is running in the machine' )
+        self.status = 'Failed'
+        updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
+        result = self.mpiService.setRingStatus(updDict)
+        return self.__finish('Master Start Fail')
       self.slaveUP = True
       result = ("True")
-    elif self.mpiFlavor == 'MPICH1':
-      print "76" 
+    elif self.mpiFlavor == 'MPICH1': 
       self.slaveUP = True
+      self.log.debug('MPICH1 slave started')
     return S_OK(self.slaveUP)
 
 #############################################################################
@@ -1282,13 +1307,12 @@ class MPIAgent(AgentModule):
     """
     statDict = {'RingID': self.ringID, 'JobID': self.jobID, 'Status': self.status}
     result = self.mpiService.setRingStatus(statDict)
-    print "77" 
     if not result['OK']:
-      print "78"
-      self.log.warn('Failed to set ring status')
-      self.log.warn(result['Message'])
+      self.log.error('Failed to set ring status')
+      self.log.error(result['Message'])
       return self.__finish('Failed to set ring status')
-      ####return S_ERROR('Error set ring status')
+    else:
+      self.log.debug('Ring status set')
     return S_OK(result)
 
 #############################################################################
@@ -1296,11 +1320,14 @@ class MPIAgent(AgentModule):
   def shutdownRing(self):
     """ Kill all mpd daemons in all the machines of the ring.
     """
-    print "79"
     self.log.info (("Shuting down the ring:%s")%(self.ringID))
-    dir = (commands.getoutput('which  mpdallexit'))
+    status, dir = (commands.getstatusoutput('which  mpdallexit'))
     cmd = ('%s &')%(dir)
-    result = os.system(cmd)
+    status, result = os.system(cmd)
+    if status == 0:
+      self.log.debug('Ring down ...')
+    else:
+      self.log.error('Failed to shutdown the ring')
     self.slaveUP = False
     return
 
@@ -1309,9 +1336,12 @@ class MPIAgent(AgentModule):
   def shutdownMPD(self):
     """ Kill mpd daemon started by this agent
     """
-    print "80"
     self.log.info (("Shuting down the ring mpd:%s")%(self.ringID))
-    dir = (commands.getoutput('which mpdallexit'))
+    status, dir = (commands.getstatusoutput('which mpdallexit'))
+    if status == 0:
+      self.log.debug('mpdallexit found')
+    else:
+      self.log.error('mpdallexit command not found')
     cmd = ('%s &') % (dir)
     result = os.system(cmd)
     self.slaveUP = False
@@ -1322,25 +1352,24 @@ class MPIAgent(AgentModule):
   def testRing(self):
     """ This function is used to ask service if number of processors into the ring is less or equal than required by the job.
     """
-    print "81" 
     testDict = {'RingID': self.ringID, 'JobID': self.jobID, 'Status': self.status, 'MasterFlag': masterFlag}
     result = self.mpiService.testRing(testDict)
     if not result['OK']:
-      print "82"
-      #####return S_ERROR('Test Ring Failed')
+      self.log.error('Test ring failed')
       return self.__finish('Test Ring Failed')
-
+    else:
+      self.log.debug('Test ring OK')
+   
     self.numProcJob = result['Value']['NumberOfProcessorsJob']
     self.numProcRing = result['Value']['NumberOfProcessorsRing']
     self.log.info ("-------------------------------------------")
     self.log.info (("First Test Ring: ProcRing: %s ProcJob: %s")% (self.numProcRing, self.numProcJob))
     self.log.info ("-------------------------------------------")
     while self.numProcRing <  self.numProcJob:
-      print "83"
+
       result = self.mpiService.testRing(testDict)
       if not result['OK']:
-       print "84" 
-       #####return S_ERROR('Test Ring Failed')
+       self.log.error('Test ring failed')
        return self.__finish('Test Ring Failed')
       self.numProcRing = result['Value']['NumberOfProcessorsRing']
       self.numProcJob = result['Value']['NumberOfProcessorsJob']
@@ -1354,7 +1383,6 @@ class MPIAgent(AgentModule):
   def MPICH2environment(self):
     """ Set up MPICH2 environment variables
     """
-    print "85"
     os.listdir('.')
     x = commands.getoutput('pwd')
     os.environ['PATH'] = (self.directory.strip('"')+os.sep+('mpich2/bin/')+':'+self.directory.strip('"')+os.sep+('mpich2/include/')+':'+'.'+':'+os.environ['PATH'])
@@ -1364,8 +1392,6 @@ class MPIAgent(AgentModule):
     commands.getoutput('chmod 600 mpd.conf')
     commands.getoutput('hash -r')
     rest = commands.getoutput('echo $PATH')
-    print rest
-    print "MPICH2environment(self):"
     return S_OK()
 
   #############################################################################
@@ -1373,7 +1399,6 @@ class MPIAgent(AgentModule):
   def MPICH1environment(self):
     """ Set up MPICH1 environment variables
     """
-    print "86"
     os.environ['PATH'] = (self.directory.strip('"')+os.sep+('mpich/bin/')+':'+self.directory.strip('"')+os.sep+('mpich/include/')+':'+'.'+':'+os.environ['PATH'])
     os.environ['LD_LIBRARY_PATH'] = (self.directory.strip('"')+os.sep+('mpich/lib/'))+':'+(self.directory.strip('"')+os.sep+('mpich/include/')+':'+os.environ['LD_LIBRARY_PATH'])
     os.environ['MACHINE_FILE'] = (self.directory.strip('"')+os.sep+('mf'))
@@ -1387,35 +1412,31 @@ class MPIAgent(AgentModule):
     """ If an error happen the Job must be rescheduled and the Agent must finalize
     """
     message = Message
-    print "AQUI MENSAJE:", message
-    #self.__rescheduleFailedJob(jobID, ringID, status, message)
     self.status = 'Failed'
     updDict = {'JobID': jobID, 'RingID': ringID, 'Status': status}
     result = self.mpiService.setRingStatus(updDict)
     if not  result['OK']:
-      self.log.error(' Problems to set ring status')
-    print "RESULT STATUS Other MPD is running", result
+      self.log.error('Problems to set ring status')
+    else:
+      self.log.debug('Ring status set')
     res = self.__rescheduleFailedJob(jobID, ringID, status, message)
     if not res['OK']:
       self.log.error('Failed to reschedule the job')
+    else:
+      self.log.debug('Job rescheduled')
     self.__finish(message)
     return S_OK()
   #############################################################################
   def __downloadInputSandbox(self, jobID):
     """ Download the input sandbox in the slaves directory 
     """
-    print "43"
-    #matcherInfo = jobMatch
-    #jobAtt = self.jobMatch['JobJDL']
-    #jobJDL = ClassAd(jobAtt)
-    #jobID = jobJDL.getAttributeInt('JobID')
-    #jobMatchJDL = ClassAd(jobAtt)
-    #matcherParams = ['JDL', 'DN', 'Group']
+
     result = self.mpiService.getJobOptParameters(self.jobID)
+    if not result['OK']:
+      self.log.error('Failed to get job parameters')
+    else:
+      self.log.debug('Job parameters OK')
     matcherInfo = result['Value']
-    print "=======================MATCHER INFO ==========================="
-    print matcherInfo
-    print "==============================================================="
 
     self.log.verbose('Job Agent execution loop')
     available = self.computingElement.available()
@@ -1448,9 +1469,6 @@ class MPIAgent(AgentModule):
     jobGroup = matcherInfo['Group']
     ownerDN = matcherInfo['DN']
 
-    print "AQUI JDL GROUP DN ======================="
-    print jobJDL, jobGroup, ownerDN
-    print "============================================" 
     optimizerParams = {}
     for key in matcherInfo.keys():
       if not key in matcherParams:
@@ -1489,7 +1507,7 @@ class MPIAgent(AgentModule):
       jobCPUReqt = 0
     else:
       jobCPUReqt = params['MaxCPUTime']
-    print "===================== LOS LOGS =========================================================="
+   
     self.log.info('Received JobID=%s, JobType=%s, SystemConfig=%s' %(jobID, jobType, systemConfig))
     self.log.info('OwnerDN: %s JobGroup: %s' %(ownerDN, jobGroup))
 
@@ -1543,7 +1561,7 @@ class MPIAgent(AgentModule):
 
       self.log.verbose('Before %sCE submitJob()' %(self.ceName))
       #submission = self.__submitJob(jobID, params, resourceParams, optimizerParams, jobJDL, proxyChain)
-      #print "44"
+      ##print "44"
       #if not submission['OK']:
       #  self.status = 'Failed'
       #  result = self.setRingStatus()
@@ -1554,27 +1572,18 @@ class MPIAgent(AgentModule):
       #  return self.__finish(submission['Message'])
       #elif 'PayloadFailed' in submission:
         # Do not keep running and do not overwrite the Payload error
-      #  print "45"
+      #  #print "45"
       #  self.status = 'Failed'
       #  updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
       #  result = self.mpiService.setRingStatus(updDict)
       #  self.__finish('Payload execution failed with error code %s' % submission['PayloadFailed'])
       #  return self.status
       #else:
-      #  print "46"
+      #  #print "46"
       #  self.status = 'Running'
       #  updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
       #  result = self.mpiService.setRingStatus(updDict)
-      #self.log.verbose('After %sCE submitJob()' %(self.ceName))
-      print "====================== AQUI ANTES DE ================================================="
-      print self.jobID
-      print params
-      print resourceParams
-      print optimizerParams
-      print "======================================================================================" 
-      result = self.__createJobWrapper( self.jobID, params, resourceParams, optimizerParams )
-      print result
-      print "**************************************************************************************" 
+     
       if not result['OK']:
         return result
 
@@ -1585,8 +1594,6 @@ class MPIAgent(AgentModule):
       self.status = 'Failed'
       result = self.setRingStatus()
       self.log.exception()
-    ####result = self.__getCPUTimeLeft()
-    ####self.log.info('Result from TimeLeft utility:', result)
     return S_OK(self.status)
 
 #EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#EOF#
