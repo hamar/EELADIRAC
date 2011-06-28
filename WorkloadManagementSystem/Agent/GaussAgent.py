@@ -54,16 +54,26 @@ class GaussAgent( AgentModule ):
             
     gaussLFN = self.genericLFNGaussSoft
     numberGaussJobs = self.numberOfGaussianJobs
-    
-    result = self.submitGaussJob(gaussLFN,numberGaussJobs)
+
+    result = self.checkGaussianJobs()
     if not result['OK']:
       self.log.error(result['Message'])
+      return S_ERROR()
     else:
-      self.log.info('Cycle complete')    
+      numberGaussJobs = int(result['Value'])
+      msg = ('Number of pending gaussian jobs: %s')%(numberGaussJobs)
+      self.log.info(msg)   
+    if numberGaussJobs > 0:
+      result = self.submitGaussJob(gaussLFN,numberGaussJobs)
+      if not result['OK']:
+        self.log.error(result['Message'])
+      else:
+        msg = ('Number of gaussian jobs submitted: %s')%(numberGaussJobs)
+        self.log.info('msg')
+    self.log.info('Cycle complete')    
     return S_OK()
   
 #############################################################################  
-
   def submitGaussJob(self,gaussLFN,numberGaussJobs):
     """ Function used to submit gaussian jobs, input sandbox scripts 
         gaussian.sh and limsProcess.tgz 
@@ -100,4 +110,27 @@ class GaussAgent( AgentModule ):
     msg = ('%s user gaussian jobs submitted')%(numberGaussJobs) 
     self.log.info(msg)
     return S_OK()
+    
+#############################################################################
+  def checkGaussianJobs(self):
+    """ This functions contact the lims server in order to get the pending
+        number of gaussian user jobs.
+    """
+    processTypes = ['gaussian_b3lyp_geom_6-31Gs_nmr_6-311Gss','gaussian_b3lyp_geom_6-31Gs_nmr_6-311++Gss','gaussian_b3lyp_geom_6-31Gs_nmr_6-31++Gss','gaussian_b3lyp_geom_6-31Gss_nmr_6-31++Gss']
+    numberGaussJobs = 0 
+    for process in processTypes:
+      limScript = ("""curl -s 'http://clo1v1.mylims.org/lims/Lims?action=process.GetWaitingProcess&email=gaussian_09@nmrdb.org&password=3hhLu6SQ2uIuGeZoHePZPw==&type=%s'|tr -d '\r\n'""")%(process)
+      status, result = commands.getstatusoutput(limScript)
+      if status==0:
+        pendingJobs = int(result)
+        self.log.debug(pendingJobs)  
+        numberGaussJobs += pendingJobs
+      else:
+        msg = ('Failed to get pending gaussian jobs: %s')%(result)
+        self.log.error(msg)
+        return S_ERROR()
+    msg = ('Total number pending jobs: %s')%(numberGaussJobs)
+    self.log.info(msg)
+    return S_OK(numberGaussJobs)
+
 #############################################################################
