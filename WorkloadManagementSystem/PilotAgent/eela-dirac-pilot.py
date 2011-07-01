@@ -444,6 +444,7 @@ print mpiPlatform
 os.listdir('.')
 dirInstallMPICH1 = os.path.join((commands.getoutput('pwd')),('mpich'))
 dirInstallMPICH2 = os.path.join((commands.getoutput('pwd')),('mpich2'))
+dirInstallgcc = os.path.join((commands.getoutput('pwd')),('gcc-4.7'))
 
 if (mpiPlatform=="Linux_i686_glibc-2.3.4" or mpiPlatform=="Linux_x86_64_glibc-2.3.4" or mpiPlatform=="slc4_amd64_gcc34" or mpiPlatform=="slc4_ia32_gcc34"):
    mpi2Version = "mpich2.%s.tar.gz" % (mpiPlatform)
@@ -473,14 +474,20 @@ r=commands.getoutput(cmd)
 os.listdir('.')
 cmd = ("cp MPIAgent.py EELADIRAC/WorkloadManagementSystem/Agent/")
 r=commands.getoutput(cmd)
-print r
+cmd = ("wget -np http://dirac.eela.if.ufrj.br/MPI/gcc-4.7.tar.gz")
+r=commands.getoutput(cmd)
+cmd = ("tar -xvzf gcc-4.7.tar.gz")
+r=commands.getoutput(cmd)
+os.environ['LD_LIBRARY_PATH'] = "%s/lib:%s" % ( dirInstallgcc, os.getenv( 'LD_LIBRARY_PATH' ))
+os.environ['PATH'] = '%s/bin:%s' % (dirInstallgcc, os.getenv( 'PATH' ) )
+
 
 ### INSTALLATION MPICH2
 if mpi2Version == "MPICH2.tar.gz":
   dir1=os.path.join((commands.getoutput('pwd')),('mpich2-1.1.1p1'))
   dir = str(dir1)
   os.chdir ("./mpich2-1.1.1p1/")
-  installMPI = (('./configure --prefix=%s --exec-prefix=%s --with-pm=mpd --enable-error-message=all;make;make install') % (dirInstallMPICH2, dirInstallMPICH2))
+  installMPI = (('./configure --prefix=%s --exec-prefix=%s --enable-f77 --enable-f90 F77=gfortran F90=gfortran --enable-mpe --with-pm=mpd --enable-error-message=all;make;make install') % (dirInstallMPICH2, dirInstallMPICH2))
   commands.getoutput(installMPI)
 else:
   dir1=os.path.join((commands.getoutput('pwd')),('mpich2'))
