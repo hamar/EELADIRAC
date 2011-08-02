@@ -79,19 +79,31 @@ class MonitoringSitesAgent( AgentModule ):
 
     all_sites = result['Value']
 
-    # remove banned sites from totalList
-    result = diracAdmin.getBannedSites(gridType) 
-    if result['OK']:
-      banned_sites = result['Value']
-      msg = ('Banned Sites: %s')%(banned_sites)
-      self.log.debug(msg)
+    banned_sites = []
+    totalList = []
+    sites = result['Value']
+
+    result = gConfig.getSections('/Resources/Sites')
+    if not result['OK']:
+      return result
+    grids = result['Value']
+    for grid in grids:
+      result = gConfig.getSections('/Resources/Sites/%s' % grid)
+      if not result['OK']:
+        return result
+      totalList += result['Value']
+
+    for site in totalList:
+      if not site in sites:
+        banned_sites.append( site )
+    banned_sites.sort()
+
+    if banned_sites<> None:
+      list_sites = list(set(totalList) - set(banned_sites))
     else:
-      self.log.error(result['Value'])
-      return S_ERROR(result['Value'])
-
-    sites = list(set(all_sites) - set(banned_sites))
-    self.log.info(sites)
-
+      list_sites = list(set(all_sites))
+    ###sites = all_sites
+    self.log.info(list_sites)
     return S_OK(sites) 
     
 
