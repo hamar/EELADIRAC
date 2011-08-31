@@ -136,7 +136,7 @@ class MPIAgent(AgentModule):
            self.log.debug("Failed to get hostname")
          
          
-         status, res = commands.getoutput ('echo $MPI_SHARED_HOME')
+         status, res = commands.getstatusoutput ('echo $MPI_SHARED_HOME')
          if status==0:
            self.sharedHome = res 
          else:
@@ -373,12 +373,12 @@ class MPIAgent(AgentModule):
          else:
            self.log.debug('Wait status ok')  
          self.status = result['Value']
-         if self.status == 'Failed'
+         if self.status == 'Failed':
            Message = 'RingInit more than 50 sec'
            res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
            if not res['OK']:
              self.log.error('Failed to reschedule the job and finalize the process')
-           return S_ERROR(result['Message'])
+           return S_ERROR('Failed to reschedule the job and finalize the process')
            return
        return
 
@@ -456,7 +456,7 @@ class MPIAgent(AgentModule):
        else:
          result = self.shutdownMPD()
          if not result['OK']:
-           self.log.error('Failed to shutdown the ring in the master')
+           self.log.error('Failed to shutdown the ring in the slave')
          else:
            self.log.debug('Ring is down in the master')
          self.status = 'OUT'
@@ -476,6 +476,12 @@ class MPIAgent(AgentModule):
        self.log.info("-----------------------------------------")
        self.status == 'OUT'
        self.finalize()
+       result = self.shutdownRing()
+       if not result['OK']:
+         self.log.error('Failed to shutdown the ring')
+       else:
+         self.log.info('Ring down')
+
        return S_ERROR(self.status)
 
     return S_OK('JobMPI Agent cycle complete')
@@ -716,20 +722,25 @@ class MPIAgent(AgentModule):
       if status==0:
         result1 = int(result2)
         result = int(result1)
-        msg = ('Machines in mpdtrace: %s)%(result)
+        msg = ('Machines in mpdtrace: %s')%(result)
         self.log.debug(msg)
       else:
         msg = ('mpdtrace command fails')
         self.log.error(msg)
         result = S_ERROR(msg)
       startFlagTime = time.time()
-      maxFlagTime = 60
+      maxFlagTime = 600
       while result < self.numProcJob:
         comparationTime = time.time() - startFlagTime
         if comparationTime > maxFlagTime:
           result = S_ERROR("Failed by time")
-      cmd = (commands.getoutput('mpdtrace -l|wc -l')
-      status, result1 = int(commands.getstatusoutput(cmd))
+        cmd = ('mpdtrace -l|wc -l')
+        status, result1 = (commands.getstatusoutput(cmd))
+        result = int(result1)
+
+        
+      cmd = ('mpdtrace -l|wc -l')
+      status, result1 = (commands.getstatusoutput(cmd))
       result = int(result1)
       startDict = {'JobID':self.jobID, 'RingID':self.ringID}
       result = self.mpiService.startRing(startDict)
@@ -1196,7 +1207,7 @@ class MPIAgent(AgentModule):
           self.log.warn(result['Message'])
           self.status = 'Failed'
         else:
-          self.status = result['Value']['Status']
+          self.status = result['Value']['Value']['Status']
           self.log.info('Ring status OK')
         Message = 'Problems to start MPICH2 environment'
         res = self.__rescheduleAndFinalize(self.jobID, self.ringID, self.status, Message)
@@ -1216,17 +1227,21 @@ class MPIAgent(AgentModule):
              self.log.error('Failed to reschedule the job and finalize the process')
 
       commands.getoutput('chmod 600 mpd.conf')
-      cmd = (result1)
-      start = os.spawnl(os.P_NOWAIT,cmd)
-      rest = os.system('sleep 5')
+      self.master = (commands.getoutput('/bin/hostname -f')) 
+      #cmd = ("%s --ifhn=%s")%(result1, self.master)
+      cmd = ("%s")%(result1)
+      arg = ("--ifhn=%s")%(self.master)
+      start = os.spawnl(os.P_NOWAIT,cmd,arg)
       os.system('sleep 5')
-      status, result = commands.getstatusoutput('mpdtrace -l |cut -d_ -f2 |cut -d" " -f1')
+      cmd = ("""mpdtrace -l |cut -d_ -f2 |cut -d" " -f1""")
+      status, result = commands.getstatusoutput("""mpdtrace -l |cut -d_ -f2 |cut -d" " -f1""")
+      self.log.debug(result)
       if status == 0:
         self.log.debug('Port retrieved')
       else:
         self.log.error('Error getting the port ..')
         self.status = 'Failed'
-        result = self.mpiService.setRingStatus(updDict)
+        result1 = self.mpiService.setRingStatus(updDict)
         return self.__finish('Error with mpdtrace')
       self.port = int(result)
       if type(self.port) is int:
@@ -1234,10 +1249,10 @@ class MPIAgent(AgentModule):
       else:
          self.log.warn ("Port is not Integer")
          self.status = 'Failed'
-         result = self.mpiService.setRingStatus(updDict) 
+         result1 = self.mpiService.setRingStatus(updDict) 
          return self.__finish('Port is not an integer')
  
-      self.master = (commands.getoutput('/bin/hostname -f'))
+      #self.master = (commands.getoutput('/bin/hostname -f'))
       result = {'Master':self.master, 'Port':self.port}
       return S_OK(result)
 
@@ -1320,30 +1335,37 @@ class MPIAgent(AgentModule):
   def shutdownRing(self):
     """ Kill all mpd daemons in all the machines of the ring.
     """
-    self.log.info (("Shuting down the ring:%s")%(self.ringID))
+    self.log.info (("Shuting down the ring: %s")%(self.ringID))
     status, dir = (commands.getstatusoutput('which  mpdallexit'))
-    cmd = ('%s &')%(dir)
-    status, result = os.system(cmd)
+    cmd = ('%s')%(dir)
+    status, result = commands.getstatusoutput(cmd)
     if status == 0:
       self.log.debug('Ring down ...')
     else:
       self.log.error('Failed to shutdown the ring')
+      return S_ERROR()
     self.slaveUP = False
-    return
+    return S_OK()
 
 #############################################################################
 
   def shutdownMPD(self):
     """ Kill mpd daemon started by this agent
     """
-    self.log.info (("Shuting down the ring mpd:%s")%(self.ringID))
+    self.log.info (("Shuting down the ring mpd: %s")%(self.ringID))
     status, dir = (commands.getstatusoutput('which mpdallexit'))
     if status == 0:
       self.log.debug('mpdallexit found')
     else:
       self.log.error('mpdallexit command not found')
-    cmd = ('%s &') % (dir)
-    result = os.system(cmd)
+    cmd = ('%s') % (dir)
+    status, result = commands.getstatusoutput(cmd)
+    if status == 0:
+      self.log.debug('Ring down ...')
+    else:
+      self.slaveUP = False
+      self.log.error('Failed to shutdown the ring')
+      return S_ERROR()
     self.slaveUP = False
     return S_OK()
 
@@ -1583,7 +1605,16 @@ class MPIAgent(AgentModule):
       #  self.status = 'Running'
       #  updDict = {'JobID': self.jobID, 'RingID': self.ringID, 'Status': self.status}
       #  result = self.mpiService.setRingStatus(updDict)
-     
+      ### VANESSA HOY 
+      parameters = self.__getJDLParameters(jobJDL)
+      if not parameters['OK']:
+        self.__report(jobID, 'Failed', 'Could Not Extract JDL Parameters')
+        self.log.warn(parameters['Message'])
+        return self.__finish('JDL Problem')
+
+      jobParams = parameters['Value']
+
+      result = self.__createJobWrapper( jobID, jobParams, resourceParams, optimizerParams )
       if not result['OK']:
         return result
 
