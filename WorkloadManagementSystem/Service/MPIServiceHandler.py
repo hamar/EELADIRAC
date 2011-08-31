@@ -81,8 +81,6 @@ class MPIServiceHandler(RequestHandler):
                           JobMatch, MPIFlavor}
     """ 
     result = self.__match(matchDict, statusDict)
-    print result
-    print "RESULT DEL MATCH"
     if not result['OK']:
       gLogger.info(result['Message'])
       return S_ERROR(result['Message'])
@@ -109,9 +107,6 @@ class MPIServiceHandler(RequestHandler):
     slock.acquire()
     matchDict = {'Site':site, 'Platform':platform, 'CE':gridCE}
     result = mpiJobDB.selectRing1(matchDict)
-    print "select ring1 ===================================================="
-    print result
-    print "===================================================="
     if result['OK']:
       ringID = int(result['Value']['RingID'])
       status = result['Value']['Status']
@@ -247,21 +242,10 @@ class MPIServiceHandler(RequestHandler):
          #for i in range(numProc):
          #cmd = (('glite-wms-job-submit -a -o %s -r %s /opt/dirac/pro/EELADIRAC/WorkloadManagementSystem/PilotAgent/eela.jdl') % (namePilots, resource))
          #ret = commands.getoutput(cmd)
-<<<<<<< HEAD
-<<<<<<< HEAD
-         print "==== GLITE ====================================="
-         print ret
-         print "========================================="
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
          #cmd = ("python /opt/dirac/pro/EELADIRAC/WorkloadManagementSystem/scripts/dirac-admin-submit-pilot-for-job.py %s /opt/dirac/pro/EELADIRAC/WorkloadManagementSystem/PilotAgent/eela.jdl") % (JobID, gridCE)
          #resource = commands.getoutput(cmd)
          
     result1 = self.getMPIFlavor(addDict)
-    print "RESULT1"
-    print result1 
     if not result1['OK']:
       gLogger.info ("-----------------------------------------")
       gLogger.info ("Failed to get MPI Flavor")
@@ -275,15 +259,6 @@ class MPIServiceHandler(RequestHandler):
               'MasterFlag': masterFlag, 'SlaveFlag':slaveFlag, 'JobMatch':jobMatch, 
               'MPIFlavor':mpiFlavor}
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-    print "---------------------->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
-    print result
-    print "---------------------->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
     ### VANESSA - 040811
     #slock.release()
     return S_OK(result)
@@ -545,13 +520,6 @@ class MPIServiceHandler(RequestHandler):
     gLogger.info ("-------------------------------------------")
     while numProcRing <  numProcJob:
       result = mpiJobDB.testRing(testDict)
-<<<<<<< HEAD
-<<<<<<< HEAD
-      print result
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
       numProcRing = result['Value']['NumberOfProcessorsRing']
       numProcJob = result['Value']['NumberOfProcessorsJob']
       if testDict['Status']=='Accumulating' and testDict['MasterFlag']==True:
@@ -576,13 +544,6 @@ class MPIServiceHandler(RequestHandler):
     result = self.setStatus(statDict)
     result = {'NumberOfProcessorsRing':numProcRing, 
               'NumberOfProcessorsJob':numProcJob, 'Status':status}
-<<<<<<< HEAD
-<<<<<<< HEAD
-    print result
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
     return S_OK(result)
 
 ##############################################################################
@@ -712,14 +673,6 @@ class MPIServiceHandler(RequestHandler):
       gLogger.info (("Job ID:%s - Status:%s") % (jobID, status))
     statDict = {'RingID': ringID, 'JobID': jobID, 'Status': status}
     status = self.setStatus(statDict)
-<<<<<<< HEAD
-<<<<<<< HEAD
-    print "VANESSA HOY 2"
-    print "STATUS", status
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
     result = status['Value']['Value']['Status']
     return S_OK(result)
 
@@ -735,13 +688,6 @@ class MPIServiceHandler(RequestHandler):
     dictMatchMPI = {'Setup':'EELA-Production', 'CPUTime':6000, 'JobType':'MPI'}
     result = matcher.getMatchingTaskQueues(dictMatchMPI)
     if not result['OK']:
-<<<<<<< HEAD
-<<<<<<< HEAD
-      print "S38"
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
       gLogger.info("-------------------------------------------------------------------")
       gLogger.error ("Here I have to call to get normal job")
       gLogger.info("-------------------------------------------------------------------")
@@ -789,30 +735,13 @@ class MPIServiceHandler(RequestHandler):
      status = 'Starting'
      statDict = {'RingID': ringID, 'JobID': jobID, 'Status': status}
      status = self.setStatus(statDict)
-<<<<<<< HEAD
-<<<<<<< HEAD
-     print "STATUS", status
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
      if not status['OK']:
       gLogger.info("-------------------------------------------------------------------")
       gLogger.error('Failed to set ring status')
       gLogger.info("-------------------------------------------------------------------")
       gLogger.error(status['Message'])
       return S_ERROR('Failed to set ring status')
-<<<<<<< HEAD
-<<<<<<< HEAD
-     print status
      result = status['Value']['Value']['Status']
-     print result
-=======
-     result = status['Value']['Value']['Status']
->>>>>>> Changes again
-=======
-     result = status['Value']['Value']['Status']
->>>>>>> integration
      return S_OK(result)
 
 #############################################################################
@@ -895,7 +824,6 @@ class MPIServiceHandler(RequestHandler):
         Output: {MPIFlavor, JobID}
     """
     result = self.getFlavor(getDict)
-    print result
     if not result['OK']:
       gLogger.info("-------------------------------------------------------------------")
       gLogger.error('Failed to get machine file')
@@ -946,46 +874,18 @@ class MPIServiceHandler(RequestHandler):
     if endDate:
       del selectDict['ToDate']  
     jobID = selectDict.get('JobID',None)
-<<<<<<< HEAD
-<<<<<<< HEAD
-    print "JOB ID", jobID
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
     # Sorting instructions. Only one for the moment.
     if sortList:
       orderAttribute = sortList[0][0]+":"+sortList[0][1]
     else:
       orderAttribute = None
-<<<<<<< HEAD
-<<<<<<< HEAD
-    print "SELECT DICTIONARY", selectDict, "***************************************************-++++++"
     if selectRings:
       result = mpiJobDB.selectRingsWeb(selectDict, orderAttribute=orderAttribute,
                                 newer=startDate, older=endDate )
-      print "RESULT SELECT RINGS WEB --------------------------->", result
-=======
-    if selectRings:
-      result = mpiJobDB.selectRingsWeb(selectDict, orderAttribute=orderAttribute,
-                                newer=startDate, older=endDate )
->>>>>>> Changes again
-=======
-    if selectRings:
-      result = mpiJobDB.selectRingsWeb(selectDict, orderAttribute=orderAttribute,
-                                newer=startDate, older=endDate )
->>>>>>> integration
       if not result['OK']:
         return S_ERROR('Failed to select Rings: '+result['Message'])
  
       ringList = result['Value']
-<<<<<<< HEAD
-<<<<<<< HEAD
-      print "RINGGGGGGGGGGGG LISTTTTTTTTTTTTTTTTT", ringList
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
       nRings = len(ringList)
       resultDict['TotalRecords'] = nRings
       if nRings == 0:
@@ -1000,26 +900,10 @@ class MPIServiceHandler(RequestHandler):
         lastRing = nRings
  
       summaryRingList = ringList[iniRing:lastRing]
-<<<<<<< HEAD
-<<<<<<< HEAD
-      print ">>>>>>>>>>summaryRingList ", summaryRingList 
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
       result = mpiJobDB.getAttributesForRingList(summaryRingList,SUMMARY)
       #####result = mpiJobDB.getAttributesForRingList(ringList,SUMMARY)
       if not result['OK']:
         return S_ERROR('Failed to get Ring summary: '+result['Message'])
-<<<<<<< HEAD
-<<<<<<< HEAD
-      print "RESULT GET RING ATTRIBUTES FOR RING LIST", result 
-      summaryDict = result['Value']
-      print "summaryDict ... ", summaryDict 
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
       # Evaluate last sign of life time
       ####for ringID, ringDict in summaryDict.items():
       ####  if ringDict['HeartBeatTime'] == 'None':
@@ -1035,23 +919,9 @@ class MPIServiceHandler(RequestHandler):
       # prepare the standard structure now
       key = summaryDict.keys()[0]
       paramNames = summaryDict[key].keys()
-<<<<<<< HEAD
-<<<<<<< HEAD
-      print key,paramNames,"key, params <<<<<<<<<<<<<<<<<<"
       records = []
       for ringID, ringDict in summaryDict.items():
         rParList = []
-        print rParList, "FRO RING ID LIST"
-=======
-      records = []
-      for ringID, ringDict in summaryDict.items():
-        rParList = []
->>>>>>> Changes again
-=======
-      records = []
-      for ringID, ringDict in summaryDict.items():
-        rParList = []
->>>>>>> integration
         for pname in paramNames:
           rParList.append(ringDict[pname])
         records.append(rParList)
@@ -1069,13 +939,6 @@ class MPIServiceHandler(RequestHandler):
          statusDict[stDict['Status']] = count
     resultDict['Extras'] = statusDict
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-    print resultDict, "<<<<<<<<<<< RESULTADO DICT"
-=======
->>>>>>> Changes again
-=======
->>>>>>> integration
     return S_OK(resultDict)
 ##############################################################################
   types_getSiteSummary = [ ]
@@ -1153,4 +1016,3 @@ class MPIServiceHandler(RequestHandler):
     Return Distict Values of Owner job Attribute in WMS
     """
     return S_OK()
-
