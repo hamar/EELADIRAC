@@ -21,6 +21,8 @@ import re, os, sys, string, time, shutil, types, commands, re, time, pprint
 diracAdmin = DiracAdmin()
 jobID = "" 
 jobDict = {} 
+addressTo = ''
+addressFrom = ''
 
 class MonitoringSitesAgent( AgentModule ):
 
@@ -31,8 +33,8 @@ class MonitoringSitesAgent( AgentModule ):
     self.am_setOption( 'PollingTime', 86400 )
     self.GridType = self.am_setOption( 'GridType', "EELA" )
     self.am_setOption( 'shifterProxy', 'MonitoringSitesManager')
-    self.addressTo = self.am_setOption( 'MailTo', "hamar@cppm.in2p3.fr" )
-    self.addressFrom = self.am_setOption( 'MailFrom', "dirac@dirac.eela.if.ufrj.br" )
+    self.addressTo = self.am_getOption( 'MailTo', "hamar@cppm.in2p3.fr" )
+    self.addressFrom = self.am_getOption( 'MailFrom', "dirac@dirac.eela.if.ufrj.br" )
     self.subject = "Monitoring Site Agent"
 
     return S_OK()
@@ -59,7 +61,7 @@ class MonitoringSitesAgent( AgentModule ):
       self.log.error(result['Value'])
     else:
       jobDict = result['Value']
-      self.sendEmail(jobDict)
+      self.sendEmail(jobDict,self.addressTo, self.subject, self.addressFrom)
       self.log.info('Cycle complete')    
     return S_OK()
 
@@ -78,10 +80,12 @@ class MonitoringSitesAgent( AgentModule ):
       self.log.debug(msg)
 
     all_sites = result['Value']
+    print "ALL" , all_sites
 
     banned_sites = []
     totalList = []
     sites = result['Value']
+
 
     result = gConfig.getSections('/Resources/Sites')
     if not result['OK']:
@@ -93,18 +97,25 @@ class MonitoringSitesAgent( AgentModule ):
         return result
       totalList += result['Value']
 
+
     for site in totalList:
       if not site in sites:
         banned_sites.append( site )
     banned_sites.sort()
+
+    print banned_sites, "BANNED"
+    print all_sites, "ALL"
+
 
     if banned_sites<> None:
       list_sites = list(set(totalList) - set(banned_sites))
     else:
       list_sites = list(set(all_sites))
     ###sites = all_sites
+
     self.log.info(list_sites)
-    return S_OK(sites) 
+
+    return S_OK(list_sites) 
     
 
 #########################################################################
@@ -127,12 +138,13 @@ class MonitoringSitesAgent( AgentModule ):
       fileToWrite.close()
       msg=("JDL %s")%(jdl)
       self.log.debug(msg)
-      cmd = ('dirac-wms-job-submit %s')% (fileName)
+      cmd = ('dirac-wms-job-submit %s|grep JobID')% (fileName)
       status, result = commands.getstatusoutput(cmd)
       if status == 0:
          self.log.debug(result)
-         cmd = ('echo %s|cut -d= -f 2')%(result)
-         jobID = int(commands.getoutput(cmd))
+         result = result.rstrip()       
+         jobID = result.split()[2]
+         jobID = int(jobID) 
          jobDict[site] = jobID
       else:
          msg = ('Job submission failed: %s')%(result) 
@@ -142,12 +154,17 @@ class MonitoringSitesAgent( AgentModule ):
       result = commands.getoutput(cmd)
     return S_OK(jobDict)
 #########################################################################
-  def sendEmail(self, jobDict):
+  def sendEmail(self, jobDict, addressTo, subject, addressFrom):
     """ Function than submit an e-mail with sites and respective jobID
     """
-    body = ('Sites and JobIDs %s') % (jobDict)
-    self.log.debug(body)
-    result = NotificationClient().sendMail( self.addressTo, self.subject, body, self.addressFrom)
+    msg = ('Sites and JobIDs %s') % (jobDict)
+    self.log.debug(msg)
+    #result = NotificationClient().sendMail( addressTo, subject, body, addressFrom)
+    print "-------------------------------------------------"
+    print addressTo, subject, msg, addressFrom
+    print addressTo, subject, msg, addressFrom
+    print "------------------------------------------------"
+    result = NotificationClient().sendMail( addressTo, subject, msg, fromAddress = addressFrom )
     if not result['OK']:
       self.log.error("Failed to sent the email")
     else:
